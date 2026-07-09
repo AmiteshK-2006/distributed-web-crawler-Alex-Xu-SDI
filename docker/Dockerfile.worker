@@ -1,0 +1,18 @@
+# docker/Dockerfile.worker
+FROM node:20-alpine
+
+# Set working directory
+WORKDIR /app
+
+# Copy package files and install dependencies
+COPY package*.json ./
+RUN npm install --omit=dev
+
+# Copy the rest of the application
+COPY . .
+
+# Expose the Prometheus metrics port
+EXPOSE 9091
+
+# Start the worker process
+CMD ["node", "src/worker.js"]

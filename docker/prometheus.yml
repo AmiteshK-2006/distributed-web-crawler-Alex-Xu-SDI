@@ -1,0 +1,10 @@
+# docker/prometheus.yml
+global:
+  scrape_interval: 5s # High frequency for near real-time observability
+
+scrape_configs:
+  - job_name: 'crawler_workers'
+    # In Docker Compose, the DNS resolves the service name 'crawler-worker' 
+    # to all IP addresses of the 3 replicas, allowing Prometheus to scrape them all.
+    static_configs:
+      - targets: ['crawler-worker:9091']
