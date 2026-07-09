@@ -1,0 +1,5 @@
+[
+  { "url": "https://news.ycombinator.com", "priority": 1 },
+  { "url": "https://techcrunch.com", "priority": 1 },
+  { "url": "https://github.com/trending", "priority": 1 }
+]

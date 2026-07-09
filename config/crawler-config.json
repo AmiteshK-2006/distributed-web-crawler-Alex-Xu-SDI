@@ -1,0 +1,6 @@
+{
+  "userAgent": "Distributed-Resume-Crawler-Bot",
+  "politenessDelayMs": 2000,
+  "maxUrlLength": 2048,
+  "maxContentLengthBytes": 5242880
+}
