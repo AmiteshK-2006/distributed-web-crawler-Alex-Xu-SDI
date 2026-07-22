@@ -3,7 +3,10 @@
   "version": "1.0.0",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "node src/worker.js",
+    "start:router": "node src/router.js",
+    "start:worker": "node src/worker.js"
   },
   "repository": {
     "type": "git",
@@ -20,6 +23,7 @@
   "dependencies": {
     "cheerio": "^1.2.0",
     "dotenv": "^17.4.2",
+    "express": "^5.2.1",
     "minio": "^8.0.7",
     "pg": "^8.22.0",
     "prom-client": "^15.1.3",
