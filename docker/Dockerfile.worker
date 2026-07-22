@@ -1,18 +1,19 @@
-# docker/Dockerfile.worker
-FROM node:20-alpine
+FROM node:18-alpine
 
-# Set working directory
 WORKDIR /app
 
-# Copy package files and install dependencies
+# Copy package files
 COPY package*.json ./
-RUN npm install --omit=dev
 
-# Copy the rest of the application
+# Install dependencies
+RUN npm ci --only=production
+
+# Copy source code
 COPY . .
 
-# Expose the Prometheus metrics port
-EXPOSE 9091
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
+  CMD node -e "require('http').get('http://localhost:9091/health', (r) => {if (r.statusCode !== 200) throw new Error(r.statusCode)})"
 
-# Start the worker process
-CMD ["node", "src/worker.js"]
+# Run based on command passed
+CMD ["npm", "start"]

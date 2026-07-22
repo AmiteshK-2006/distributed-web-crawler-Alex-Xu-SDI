@@ -1,107 +1,262 @@
-# docker/docker-compose.yml
 version: '3.8'
 
 services:
-  # 1. Frontier & De-duplication (Includes Redis Lists, Sets, and Bloom Filter)
+  # Redis Stack (with Bloom Filter support)
   redis:
-    image: redis/redis-stack-server:latest
-    container_name: crawler_redis
+    image: redis/redis-stack:latest
+    container_name: crawler-redis
     ports:
       - "6379:6379"
-    restart: always
+      - "8001:8001"  # Redis Insight UI (optional)
+    environment:
+      - REDIS_MODULES=bf  # Enable Bloom Filter
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - crawler_network
 
-  # 2. Metadata Storage
+  # PostgreSQL Database
   postgres:
     image: postgres:15-alpine
-    container_name: crawler_postgres
+    container_name: crawler-postgres
     environment:
-      POSTGRES_USER: crawler
-      POSTGRES_PASSWORD: crawler_password
-      POSTGRES_DB: crawler_metadata
+      POSTGRES_USER: crawler_user
+      POSTGRES_PASSWORD: crawler_pass
+      POSTGRES_DB: crawler_db
     ports:
       - "5432:5432"
     volumes:
-      - pgdata:/var/lib/postgresql/data
-      - ../database:/docker-entrypoint-initdb.d
-    restart: always
+      - postgres_data:/var/lib/postgresql/data
+      - ./database/schema.sql:/docker-entrypoint-initdb.d/schema.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U crawler_user -d crawler_db"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - crawler_network
 
-  # 3. Content Storage (S3-Compatible)
+  # MinIO S3-Compatible Object Storage
   minio:
-    image: minio/minio
-    container_name: crawler_minio
-    command: server /data --console-address ":9001"
+    image: minio/minio:latest
+    container_name: crawler-minio
     environment:
-      MINIO_ROOT_USER: minioadmin
-      MINIO_ROOT_PASSWORD: minioadmin
+      MINIO_ROOT_USER: minio_admin
+      MINIO_ROOT_PASSWORD: minio_secret
     ports:
       - "9000:9000"
-      - "9001:9001"
+      - "9001:9001"  # MinIO Console
     volumes:
-      - miniodata:/data
-    restart: always
+      - minio_data:/minio_data
+    command: server /minio_data --console-address ":9001"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - crawler_network
 
-  # Sidecar to auto-create the MinIO bucket
-  minio-setup:
-    image: minio/mc
-    container_name: crawler_minio_setup
-    depends_on:
-      - minio
-    entrypoint: >
-      /bin/sh -c "
-      sleep 5;
-      /usr/bin/mc config host add myminio http://minio:9000 minioadmin minioadmin;
-      /usr/bin/mc mb myminio/crawler-content --ignore-existing;
-      exit 0;
-      "
-
-  # 4. Observability Layer
+  # Prometheus (Metrics Storage)
   prometheus:
     image: prom/prometheus:latest
-    container_name: crawler_prometheus
-    volumes:
-      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+    container_name: crawler-prometheus
     ports:
       - "9090:9090"
-    restart: always
+    volumes:
+      - ./docker/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--web.console.libraries=/usr/share/prometheus/console_libraries"
+      - "--web.console.templates=/usr/share/prometheus/consoles"
+    networks:
+      - crawler_network
+    depends_on:
+      - router
 
+  # Grafana (Metrics Visualization)
   grafana:
     image: grafana/grafana:latest
-    container_name: crawler_grafana
+    container_name: crawler-grafana
     ports:
       - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_SECURITY_ADMIN_USER: admin
+    volumes:
+      - grafana_data:/var/lib/grafana
+    networks:
+      - crawler_network
     depends_on:
       - prometheus
-    restart: always
 
-  # 5. Worker Nodes (Placeholder for Step 2)
-  crawler-worker:
-    build: 
-      context: ../
+  # Frontier Router (Single Instance)
+  router:
+    build:
+      context: .
       dockerfile: docker/Dockerfile.worker
-    depends_on:
-      - redis
-      - postgres
-      - minio
-    deploy:
-      replicas: 3
+    container_name: crawler-router
     environment:
-      - REDIS_URL=redis://redis:6379
-      - PG_URL=postgres://crawler:crawler_password@postgres:5432/crawler_metadata
-      - S3_ENDPOINT=minio
-      - S3_PORT=9000
+      NODE_ENV: production
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: crawler_db
+      POSTGRES_USER: crawler_user
+      POSTGRES_PASSWORD: crawler_pass
+      MINIO_ENDPOINT: minio
+      MINIO_PORT: 9000
+      MINIO_ACCESS_KEY: minio_admin
+      MINIO_SECRET_KEY: minio_secret
+      MINIO_BUCKET_NAME: html-payloads
+      USER_AGENT: Distributed-Resume-Crawler-Bot
+      METRICS_PORT: 9091
+    ports:
+      - "9091:9091"  # Metrics endpoint
+    command: npm run start:router
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    networks:
+      - crawler_network
+    restart: unless-stopped
 
-
-# Dedicated Frontier Router
-  crawler-router:
-    build: 
-      context: ../
+  # Worker Node 1
+  worker_1:
+    build:
+      context: .
       dockerfile: docker/Dockerfile.worker
-    command: ["node", "src/router.js"]
-    depends_on:
-      - redis
+    container_name: crawler-worker-1
     environment:
-      - REDIS_URL=redis://redis:6379
+      NODE_ENV: production
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: crawler_db
+      POSTGRES_USER: crawler_user
+      POSTGRES_PASSWORD: crawler_pass
+      MINIO_ENDPOINT: minio
+      MINIO_PORT: 9000
+      MINIO_ACCESS_KEY: minio_admin
+      MINIO_SECRET_KEY: minio_secret
+      MINIO_BUCKET_NAME: html-payloads
+      USER_AGENT: Distributed-Resume-Crawler-Bot
+      METRICS_PORT: 9092
+      WORKER_ID: 0
+    ports:
+      - "9092:9092"  # Metrics endpoint
+    command: npm run start:worker
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      router:
+        condition: service_started
+    networks:
+      - crawler_network
+    restart: unless-stopped
+
+  # Worker Node 2
+  worker_2:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.worker
+    container_name: crawler-worker-2
+    environment:
+      NODE_ENV: production
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: crawler_db
+      POSTGRES_USER: crawler_user
+      POSTGRES_PASSWORD: crawler_pass
+      MINIO_ENDPOINT: minio
+      MINIO_PORT: 9000
+      MINIO_ACCESS_KEY: minio_admin
+      MINIO_SECRET_KEY: minio_secret
+      MINIO_BUCKET_NAME: html-payloads
+      USER_AGENT: Distributed-Resume-Crawler-Bot
+      METRICS_PORT: 9093
+      WORKER_ID: 1
+    ports:
+      - "9093:9093"  # Metrics endpoint
+    command: npm run start:worker
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      router:
+        condition: service_started
+    networks:
+      - crawler_network
+    restart: unless-stopped
+
+  # Worker Node 3
+  worker_3:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.worker
+    container_name: crawler-worker-3
+    environment:
+      NODE_ENV: production
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: crawler_db
+      POSTGRES_USER: crawler_user
+      POSTGRES_PASSWORD: crawler_pass
+      MINIO_ENDPOINT: minio
+      MINIO_PORT: 9000
+      MINIO_ACCESS_KEY: minio_admin
+      MINIO_SECRET_KEY: minio_secret
+      MINIO_BUCKET_NAME: html-payloads
+      USER_AGENT: Distributed-Resume-Crawler-Bot
+      METRICS_PORT: 9094
+      WORKER_ID: 2
+    ports:
+      - "9094:9094"  # Metrics endpoint
+    command: npm run start:worker
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      router:
+        condition: service_started
+    networks:
+      - crawler_network
+    restart: unless-stopped
 
 volumes:
-  pgdata:
-  miniodata:
+  redis_data:
+  postgres_data:
+  minio_data:
+  prometheus_data:
+  grafana_data:
+
+networks:
+  crawler_network:
+    driver: bridge
