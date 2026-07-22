@@ -1,10 +1,40 @@
-# docker/prometheus.yml
 global:
-  scrape_interval: 5s # High frequency for near real-time observability
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    monitor: 'crawler-monitor'
 
 scrape_configs:
-  - job_name: 'crawler_workers'
-    # In Docker Compose, the DNS resolves the service name 'crawler-worker' 
-    # to all IP addresses of the 3 replicas, allowing Prometheus to scrape them all.
+  - job_name: 'prometheus'
     static_configs:
-      - targets: ['crawler-worker:9091']
+      - targets: ['localhost:9090']
+
+  - job_name: 'crawler-router'
+    static_configs:
+      - targets: ['router:9091']
+    metrics_path: '/metrics'
+
+  - job_name: 'crawler-worker-1'
+    static_configs:
+      - targets: ['worker_1:9092']
+    metrics_path: '/metrics'
+
+  - job_name: 'crawler-worker-2'
+    static_configs:
+      - targets: ['worker_2:9093']
+    metrics_path: '/metrics'
+
+  - job_name: 'crawler-worker-3'
+    static_configs:
+      - targets: ['worker_3:9094']
+    metrics_path: '/metrics'
+
+  - job_name: 'redis'
+    static_configs:
+      - targets: ['redis:6379']
+    # Requires redis_exporter sidecar for full metrics
+
+  - job_name: 'postgres'
+    static_configs:
+      - targets: ['postgres:5432']
+    # Requires postgres_exporter sidecar for full metrics
