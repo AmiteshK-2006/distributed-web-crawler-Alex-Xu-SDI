@@ -1,14 +1,14 @@
 const Minio = require('minio');
 
 const minioClient = new Minio.Client({
-    endPoint: process.env.S3_ENDPOINT || 'localhost',
-    port: parseInt(process.env.S3_PORT) || 9000,
+    endPoint: process.env.MINIO_ENDPOINT || 'localhost',
+    port: parseInt(process.env.MINIO_PORT) || 9000,
     useSSL: false,
-    accessKey: process.env.MINIO_ACCESS_KEY || 'minioadmin',
-    secretKey: process.env.MINIO_SECRET_KEY || 'minioadmin'
+    accessKey: process.env.MINIO_ACCESS_KEY || 'minio_admin',
+    secretKey: process.env.MINIO_SECRET_KEY || 'minio_secret'
 });
 
-const BUCKET_NAME = 'crawler-content';
+const BUCKET_NAME = process.env.MINIO_BUCKET_NAME || 'html-payloads';
 
 async function saveContent(contentHash, htmlContent) {
     try {
