@@ -11,8 +11,14 @@ async function connectRedis() {
         await redisClient.connect();
         console.log('Connected to Redis');
         
-        // Initialize the Bloom Filter for URL Seen check if it doesn't exist
+        // Initialize the Bloom Filter for URL Seen check
         try {
+            // Check if RedisBloom is available
+            if (!redisClient.bf) {
+                console.warn('RedisBloom module not available.');
+                return;
+            }
+            
             await redisClient.bf.reserve('URL_SEEN_FILTER', 0.001, 1000000);
             console.log('Bloom Filter initialized');
         } catch (err) {
