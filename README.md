@@ -68,7 +68,3 @@ While this system handles distributed processing efficiently, it currently has a
 
 * **Bloom Filter False Positives:** The system currently relies entirely on `BF.ADD` for the URL-seen check. Because Bloom filters carry a small rate of false positives, some unseen URLs may be permanently dropped. In a production environment, this would be mitigated by using the Bloom filter as a first-pass check, falling back to a definitive PostgreSQL query if the filter returns `true`.
 * **Static Scoring System:** The priority queue currently uses a basic heuristic (Internal vs. External links). A future iteration would implement a dynamic scoring algorithm computing the link's depth from the seed, historical domain trust, or basic PageRank metrics.
-
-## 📄 License
-
-This project is licensed under the MIT License - see the LICENSE file for details.
